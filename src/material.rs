@@ -62,6 +62,8 @@ pub struct PolylineMaterial {
     ///
     /// Note that `depth_bias` **does not** interact with this in any way.
     pub perspective: bool,
+    /// TODO
+    pub max_clip_w: Option<f32>,
 }
 
 impl Default for PolylineMaterial {
@@ -71,6 +73,7 @@ impl Default for PolylineMaterial {
             color: Color::WHITE.to_linear(),
             depth_bias: 0.0,
             perspective: false,
+            max_clip_w: None,
         }
     }
 }
@@ -103,6 +106,7 @@ pub struct PolylineMaterialUniform {
     pub color: Vec4,
     pub depth_bias: f32,
     pub width: f32,
+    pub max_clip_w: f32,
 }
 
 pub struct GpuPolylineMaterial {
@@ -110,6 +114,7 @@ pub struct GpuPolylineMaterial {
     pub perspective: bool,
     pub bind_group: BindGroup,
     pub alpha_mode: AlphaMode,
+    pub clip_w: bool,
 }
 
 impl RenderAsset for GpuPolylineMaterial {
@@ -133,6 +138,7 @@ impl RenderAsset for GpuPolylineMaterial {
             width: polyline_material.width,
             depth_bias: polyline_material.depth_bias,
             color: polyline_material.color.to_f32_array().into(),
+            max_clip_w: polyline_material.max_clip_w.unwrap_or_default(),
         };
 
         let mut buffer = UniformBuffer::from(value);
@@ -159,6 +165,7 @@ impl RenderAsset for GpuPolylineMaterial {
             perspective: polyline_material.perspective,
             alpha_mode,
             bind_group,
+            clip_w: polyline_material.max_clip_w.is_some(),
         })
     }
 }
@@ -216,6 +223,12 @@ impl SpecializedRenderPipeline for PolylineMaterialPipeline {
                 .vertex
                 .shader_defs
                 .push("POLYLINE_PERSPECTIVE".into());
+        }
+        if key.contains(PolylinePipelineKey::MAX_CLIP_W) {
+            descriptor
+                .vertex
+                .shader_defs
+                .push("POLYLINE_MAX_CLIP_W".into());
         }
         descriptor.layout = vec![
             self.polyline_pipeline.view_layout.clone(),
@@ -321,6 +334,9 @@ pub fn queue_material_polylines(
             }
             if material.perspective {
                 polyline_key |= PolylinePipelineKey::PERSPECTIVE
+            }
+            if material.clip_w {
+                polyline_key |= PolylinePipelineKey::MAX_CLIP_W
             }
             let pipeline_id =
                 pipelines.specialize(&pipeline_cache, &material_pipeline, polyline_key);
