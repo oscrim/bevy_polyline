@@ -22,6 +22,7 @@ fn setup(
             width: 10.0,
             color: RED.into(),
             perspective: false,
+            max_clip_w: Some(3.0),
             ..default()
         })),
         ..default()

@@ -1,5 +1,7 @@
 #import bevy_render::view::View
 
+
+
 @group(0) @binding(0)
 var<uniform> view: View;
 
@@ -14,6 +16,7 @@ struct PolylineMaterial {
     color: vec4<f32>,
     depth_bias: f32,
     width: f32,
+    max_clip_w: f32,
 };
 
 @group(2) @binding(0)
@@ -49,6 +52,18 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // Manual near plane clipping to avoid errors when doing the perspective divide inside this shader.
     clip0 = clip_near_plane(clip0, clip1);
     clip1 = clip_near_plane(clip1, clip0);
+
+    #ifdef POLYLINE_MAX_CLIP_W
+        clip0 = clip_far_plane(clip0, clip1, material.max_clip_w);
+        clip1 = clip_far_plane(clip1, clip0, material.max_clip_w);
+
+        if clip0.w > material.max_clip_w && clip1.w > material.max_clip_w {
+            return VertexOutput(
+                vec4(0.0, 0.0, 2.0, 1.0),
+                vec4(0.0)
+            );
+        }
+    #endif
 
     let clip = mix(clip0, clip1, position.z);
 
@@ -95,12 +110,20 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 }
 
 fn clip_near_plane(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
-    // Move a if a is behind the near plane and b is in front. 
+    // Move a if a is behind the near plane and b is in front.
     if a.z > a.w && b.z <= b.w {
         // Interpolate a towards b until it's at the near plane.
         let distance_a = a.z - a.w;
         let distance_b = b.z - b.w;
         let t = distance_a / (distance_a - distance_b);
+        return a + (b - a) * t;
+    }
+    return a;
+}
+
+fn clip_far_plane(a: vec4<f32>, b: vec4<f32>, max_w: f32) -> vec4<f32> {
+    if a.w > max_w && b.w <= max_w {
+        let t = (max_w - a.w) / (b.w - a.w);
         return a + (b - a) * t;
     }
     return a;
