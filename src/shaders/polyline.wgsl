@@ -17,6 +17,7 @@ struct PolylineMaterial {
     depth_bias: f32,
     width: f32,
     max_clip_w: f32,
+    focus_point: vec3<f32>,
 };
 
 @group(2) @binding(0)
@@ -78,7 +79,54 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var color = material.color;
 
     #ifdef POLYLINE_PERSPECTIVE
-        line_width /= clip.w;
+        let world0 = (polyline.model * vec4(vertex.point_a, 1.0)).xyz;
+        let world1 = (polyline.model * vec4(vertex.point_b, 1.0)).xyz;
+        let world_pos = mix(world0, world1, position.z);
+
+        let delta_y = world_pos.y - material.focus_point.y; // signed height
+        let h = abs(delta_y);
+
+        let dead_zone = 10.0;
+
+        let drop_above = 5.0;   // meters for smooth first drop above focus
+        let drop_below = 5.0;   // meters for smooth first drop below focus
+        let first_drop_min_below = 0.3; // below: drop to 30%
+        let first_drop_min_above = 0.1; // above: drop to 10%
+
+        var scale = 1.0;
+
+        //if (h > dead_zone) {
+        //    let x = h - dead_zone;
+        //    // smooth linear interpolation from 1.0 → 0.5 over first_drop_range
+        //    scale = mix(1.0, first_drop_min, clamp(x / first_drop_range, 0.0, 1.0));
+        //}
+
+        if (h > dead_zone) {
+            // choose drop range based on above/below
+            let drop_range = select(drop_below, drop_above, delta_y > 0.0); // delta_y >0 → above
+            let target_min = select(first_drop_min_below, first_drop_min_above, delta_y > 0.0);
+
+            let x = h - dead_zone;
+            scale = mix(1.0, target_min, clamp(x / drop_range, 0.0, 1.0));
+        }
+
+        if (delta_y < 0.0 && h > dead_zone + drop_below) {
+            // Tail only applies below focus
+            let tail_h = h - (dead_zone + drop_below);
+            let tail_scale = pow(1.0 + tail_h * 0.1, -0.5); // slow decay
+            scale *= tail_scale;
+        }
+
+        let min_scale = 0.05;
+        scale = max(min_scale, scale);
+
+        line_width *= scale;
+
+        //color = vec4(scale, 1.0 - scale, 1.0 - scale, 1.0);
+
+        color.a *= smoothstep(0.0, 0.2, scale);
+
+        //line_width /= clip.w;
         // Line thinness fade from https://acegikmo.com/shapes/docs/#anti-aliasing
         if (line_width > 0.0 && line_width < 1.0) {
             color.a *= line_width;
