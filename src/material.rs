@@ -64,6 +64,8 @@ pub struct PolylineMaterial {
     pub perspective: bool,
     /// TODO
     pub max_clip_w: Option<f32>,
+    /// TODO
+    pub focus_point: Vec3,
 }
 
 impl Default for PolylineMaterial {
@@ -74,6 +76,7 @@ impl Default for PolylineMaterial {
             depth_bias: 0.0,
             perspective: false,
             max_clip_w: None,
+            focus_point: Vec3::ZERO,
         }
     }
 }
@@ -107,6 +110,7 @@ pub struct PolylineMaterialUniform {
     pub depth_bias: f32,
     pub width: f32,
     pub max_clip_w: f32,
+    pub focus_point: Vec3,
 }
 
 pub struct GpuPolylineMaterial {
@@ -139,6 +143,7 @@ impl RenderAsset for GpuPolylineMaterial {
             depth_bias: polyline_material.depth_bias,
             color: polyline_material.color.to_f32_array().into(),
             max_clip_w: polyline_material.max_clip_w.unwrap_or_default(),
+            focus_point: polyline_material.focus_point,
         };
 
         let mut buffer = UniformBuffer::from(value);
