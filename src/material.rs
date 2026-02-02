@@ -1,6 +1,6 @@
 use crate::polyline::{
-    DrawPolyline, PolylineHandle, PolylinePipeline, PolylinePipelineKey, PolylineUniform,
-    PolylineViewBindGroup, SetPolylineBindGroup,
+    DrawPolyline, PolylineFocusPoint, PolylineHandle, PolylinePipeline, PolylinePipelineKey,
+    PolylineUniform, PolylineViewBindGroup, SetPolylineBindGroup,
 };
 
 use bevy::{
@@ -18,7 +18,7 @@ use bevy::{
     },
     prelude::*,
     render::{
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_component::{DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin},
         render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
         render_phase::*,
         render_resource::{binding_types::uniform_buffer, *},
@@ -64,8 +64,6 @@ pub struct PolylineMaterial {
     pub perspective: bool,
     /// TODO
     pub max_clip_w: Option<f32>,
-    /// TODO
-    pub focus_point: Vec3,
 }
 
 impl Default for PolylineMaterial {
@@ -76,7 +74,6 @@ impl Default for PolylineMaterial {
             depth_bias: 0.0,
             perspective: false,
             max_clip_w: None,
-            focus_point: Vec3::ZERO,
         }
     }
 }
@@ -110,7 +107,6 @@ pub struct PolylineMaterialUniform {
     pub depth_bias: f32,
     pub width: f32,
     pub max_clip_w: f32,
-    pub focus_point: Vec3,
 }
 
 pub struct GpuPolylineMaterial {
@@ -143,7 +139,6 @@ impl RenderAsset for GpuPolylineMaterial {
             depth_bias: polyline_material.depth_bias,
             color: polyline_material.color.to_f32_array().into(),
             max_clip_w: polyline_material.max_clip_w.unwrap_or_default(),
-            focus_point: polyline_material.focus_point,
         };
 
         let mut buffer = UniformBuffer::from(value);
@@ -254,19 +249,27 @@ type DrawPolylineMaterial = (
 
 pub struct SetPolylineViewBindGroup<const I: usize>;
 impl<const I: usize, P: PhaseItem> RenderCommand<P> for SetPolylineViewBindGroup<I> {
-    type ViewQuery = (Read<ViewUniformOffset>, Read<PolylineViewBindGroup>);
+    type ViewQuery = (
+        Read<ViewUniformOffset>,
+        Read<DynamicUniformIndex<PolylineFocusPoint>>,
+        Read<PolylineViewBindGroup>,
+    );
     type ItemQuery = ();
     type Param = ();
 
     #[inline]
     fn render<'w>(
         _item: &P,
-        (view_uniform, mesh_view_bind_group): ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_uniform, focus_offset, mesh_view_bind_group): ROQueryItem<'w, '_, Self::ViewQuery>,
         _entity: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         _param: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        pass.set_bind_group(I, &mesh_view_bind_group.value, &[view_uniform.offset]);
+        pass.set_bind_group(
+            I,
+            &mesh_view_bind_group.value,
+            &[view_uniform.offset, focus_offset.index()],
+        );
         RenderCommandResult::Success
     }
 }

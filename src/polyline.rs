@@ -12,7 +12,10 @@ use bevy::{
     prelude::*,
     reflect::TypePath,
     render::{
-        extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
+        extract_component::{
+            ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
+            UniformComponentPlugin,
+        },
         render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         render_resource::{binding_types::uniform_buffer, *},
@@ -35,7 +38,11 @@ impl Plugin for PolylineBasePlugin {
 pub struct PolylineRenderPlugin;
 impl Plugin for PolylineRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(UniformComponentPlugin::<PolylineUniform>::default());
+        app.add_plugins((
+            UniformComponentPlugin::<PolylineUniform>::default(),
+            ExtractComponentPlugin::<PolylineFocusPoint>::default(),
+            UniformComponentPlugin::<PolylineFocusPoint>::default(),
+        ));
     }
 
     fn finish(&self, app: &mut App) {
@@ -154,9 +161,12 @@ impl FromWorld for PolylinePipeline {
     fn from_world(_: &mut World) -> Self {
         let view_layout = BindGroupLayoutDescriptor::new(
             "polyline_view_layout",
-            &BindGroupLayoutEntries::single(
+            &BindGroupLayoutEntries::sequential(
                 ShaderStages::VERTEX,
-                uniform_buffer::<ViewUniform>(true),
+                (
+                    uniform_buffer::<ViewUniform>(true),
+                    uniform_buffer::<PolylineFocusPoint>(true),
+                ),
             ),
         );
 
@@ -350,14 +360,26 @@ pub fn prepare_polyline_view_bind_groups(
     render_device: Res<RenderDevice>,
     polyline_pipeline: Res<PolylinePipeline>,
     view_uniforms: Res<ViewUniforms>,
-    views: Query<Entity, With<bevy::render::view::ExtractedView>>,
+
+    focus_point_uniforms: Res<ComponentUniforms<PolylineFocusPoint>>,
+    views: Query<
+        Entity,
+        (
+            With<bevy::render::view::ExtractedView>,
+            With<PolylineFocusPoint>,
+        ),
+    >,
     pipeline_cache: Res<PipelineCache>,
 ) {
     for entity in views.iter() {
+        let focus_binding = focus_point_uniforms
+            .binding()
+            .expect("Failed to prepare polyline bind group. Focus Point is missing");
+
         let view_bind_group = render_device.create_bind_group(
             Some("polyline_view_bind_group"),
             &pipeline_cache.get_bind_group_layout(&polyline_pipeline.view_layout),
-            &BindGroupEntries::single(&view_uniforms.uniforms),
+            &BindGroupEntries::sequential((&view_uniforms.uniforms, focus_binding)),
         );
 
         commands.entity(entity).insert(PolylineViewBindGroup {
@@ -419,5 +441,22 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPolyline {
         } else {
             RenderCommandResult::Failure("Error loading gpu polyline")
         }
+    }
+}
+
+#[derive(Component, Clone, Copy, ShaderType, Default)]
+pub struct PolylineFocusPoint {
+    pub focus_point: Vec3,
+}
+
+impl ExtractComponent for PolylineFocusPoint {
+    type QueryData = &'static PolylineFocusPoint;
+    type QueryFilter = With<Camera3d>;
+    type Out = PolylineFocusPoint;
+
+    fn extract_component(
+        item: bevy::ecs::query::QueryItem<'_, '_, Self::QueryData>,
+    ) -> Option<Self::Out> {
+        Some(*item)
     }
 }
