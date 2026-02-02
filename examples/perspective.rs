@@ -1,5 +1,5 @@
 use bevy::{color::palettes::css::RED, prelude::*, render::view::Hdr};
-use bevy_polyline::prelude::*;
+use bevy_polyline::{polyline::PolylineFocusPoint, prelude::*};
 
 fn main() {
     App::new()
@@ -31,6 +31,9 @@ fn setup(
     // camera
     commands.spawn((
         Camera3d::default(),
+        PolylineFocusPoint {
+            focus_point: Vec3::ZERO,
+        },
         Msaa::Sample4,
         Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         Camera::default(),

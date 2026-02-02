@@ -5,6 +5,12 @@
 @group(0) @binding(0)
 var<uniform> view: View;
 
+struct PolylineView {
+    focus_point: vec3<f32>,
+};
+
+@group(0) @binding(1) var<uniform> polyline_view: PolylineView;
+
 struct Polyline {
     model: mat4x4<f32>,
 };
@@ -17,7 +23,6 @@ struct PolylineMaterial {
     depth_bias: f32,
     width: f32,
     max_clip_w: f32,
-    focus_point: vec3<f32>,
 };
 
 @group(2) @binding(0)
@@ -83,13 +88,13 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         let world1 = (polyline.model * vec4(vertex.point_b, 1.0)).xyz;
         let world_pos = mix(world0, world1, position.z);
 
-        let focus_to_pos = world_pos - material.focus_point;
+        let focus_to_pos = world_pos - polyline_view.focus_point;
         let camera_pos = vec3(view.world_from_view[3][0], view.world_from_view[3][1], view.world_from_view[3][2]);
-        let cam_to_focus = material.focus_point - camera_pos;
+        let cam_to_focus = polyline_view.focus_point - camera_pos;
 
         let t = dot(focus_to_pos, cam_to_focus) / dot(cam_to_focus, cam_to_focus);
 
-        let delta_y = world_pos.y - material.focus_point.y; // signed height
+        let delta_y = world_pos.y - polyline_view.focus_point.y; // signed height
         let h = abs(delta_y);
         let dead_zone = 10.0;
 
