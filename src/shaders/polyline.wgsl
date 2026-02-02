@@ -83,10 +83,19 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         let world1 = (polyline.model * vec4(vertex.point_b, 1.0)).xyz;
         let world_pos = mix(world0, world1, position.z);
 
+        let focus_to_pos = world_pos - material.focus_point;
+        let camera_pos = vec3(view.world_from_view[3][0], view.world_from_view[3][1], view.world_from_view[3][2]);
+        let cam_to_focus = material.focus_point - camera_pos;
+
+        let t = dot(focus_to_pos, cam_to_focus) / dot(cam_to_focus, cam_to_focus);
+
         let delta_y = world_pos.y - material.focus_point.y; // signed height
         let h = abs(delta_y);
-
         let dead_zone = 10.0;
+
+        if (h > dead_zone && t < 0.0 && delta_y > 0.0) {
+            return VertexOutput(vec4(0.0, 0.0, 2.0, 1.0), vec4(0.0));
+        }
 
         let drop_above = 5.0;   // meters for smooth first drop above focus
         let drop_below = 5.0;   // meters for smooth first drop below focus
@@ -94,12 +103,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         let first_drop_min_above = 0.1; // above: drop to 10%
 
         var scale = 1.0;
-
-        //if (h > dead_zone) {
-        //    let x = h - dead_zone;
-        //    // smooth linear interpolation from 1.0 → 0.5 over first_drop_range
-        //    scale = mix(1.0, first_drop_min, clamp(x / first_drop_range, 0.0, 1.0));
-        //}
 
         if (h > dead_zone) {
             // choose drop range based on above/below
