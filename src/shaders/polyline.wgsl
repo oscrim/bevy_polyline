@@ -7,6 +7,11 @@ var<uniform> view: View;
 
 struct PolylineView {
     focus_point: vec3<f32>,
+    highlight_height: f32,
+    drop_above: f32,
+    drop_below: f32,
+    drop_above_min_val: f32,
+    drop_below_min_val: f32,
 };
 
 @group(0) @binding(1) var<uniform> polyline_view: PolylineView;
@@ -83,7 +88,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var line_width = material.width;
     var color = material.color;
 
-    #ifdef POLYLINE_PERSPECTIVE
+    #ifdef POLYLINE_FOCUS_POINT
         let world0 = (polyline.model * vec4(vertex.point_a, 1.0)).xyz;
         let world1 = (polyline.model * vec4(vertex.point_b, 1.0)).xyz;
         let world_pos = mix(world0, world1, position.z);
@@ -96,16 +101,17 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
         let delta_y = world_pos.y - polyline_view.focus_point.y; // signed height
         let h = abs(delta_y);
-        let dead_zone = 10.0;
+        let dead_zone = polyline_view.highlight_height;
 
         if (h > dead_zone && t < 0.0 && delta_y > 0.0) {
-            return VertexOutput(vec4(0.0, 0.0, 2.0, 1.0), vec4(0.0));
+            //return VertexOutput(vec4(0.0, 0.0, 2.0, 1.0), vec4(0.0));
+            color.a = 0.0;
         }
 
-        let drop_above = 5.0;   // meters for smooth first drop above focus
-        let drop_below = 5.0;   // meters for smooth first drop below focus
-        let first_drop_min_below = 0.3; // below: drop to 30%
-        let first_drop_min_above = 0.1; // above: drop to 10%
+        let drop_above = polyline_view.drop_above;   // meters for smooth first drop above focus
+        let drop_below = polyline_view.drop_below;   // meters for smooth first drop below focus
+        let first_drop_min_below = polyline_view.drop_below_min_val; // below: drop to 30%
+        let first_drop_min_above = polyline_view.drop_above_min_val; // above: drop to 10%
 
         var scale = 1.0;
 

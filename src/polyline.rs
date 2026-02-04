@@ -199,7 +199,7 @@ impl SpecializedRenderPipeline for PolylinePipeline {
             // For the transparent pass, fragments that are closer will be alpha blended
             // but their depth is not written to the depth buffer
             depth_write_enabled = false;
-        } else if key.contains(PolylinePipelineKey::PERSPECTIVE) {
+        } else if key.contains(PolylinePipelineKey::FOCUS_POINT) {
             // We need to use transparent pass with perspective to support thin line fading.
             label = "transparent_polyline_pipeline".into();
             blend = Some(BlendState::ALPHA_BLENDING);
@@ -295,7 +295,7 @@ bitflags::bitflags! {
     // MSAA uses the highest 3 bits for the MSAA log2(sample count) to support up to 128x MSAA.
     pub struct PolylinePipelineKey: u32 {
         const NONE = 0;
-        const PERSPECTIVE = (1 << 0);
+        const FOCUS_POINT = (1 << 0);
         const TRANSPARENT_MAIN_PASS = (1 << 1);
         const HDR = (1 << 2);
         const MAX_CLIP_W = (1 << 3);
@@ -362,13 +362,7 @@ pub fn prepare_polyline_view_bind_groups(
     view_uniforms: Res<ViewUniforms>,
 
     focus_point_uniforms: Res<ComponentUniforms<PolylineFocusPoint>>,
-    views: Query<
-        Entity,
-        (
-            With<bevy::render::view::ExtractedView>,
-            With<PolylineFocusPoint>,
-        ),
-    >,
+    views: Query<Entity, With<bevy::render::view::ExtractedView>>,
     pipeline_cache: Res<PipelineCache>,
 ) {
     for entity in views.iter() {
@@ -444,19 +438,51 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPolyline {
     }
 }
 
-#[derive(Component, Clone, Copy, ShaderType, Default)]
+#[derive(Component, Clone, Copy, ShaderType)]
 pub struct PolylineFocusPoint {
     pub focus_point: Vec3,
+    /// How many units above and below the focus point to highlight
+    ///
+    /// A value of 1.0 will highlight 1 unit above and 1 unit below the focus point
+    pub highlight_height: f32,
+    /// How many units the sharp line thickness will drop above the focus point
+    pub drop_above: f32,
+    /// How many units the sharp line thickness will drop below the focus point
+    pub drop_below: f32,
+    /// Percentage of line thickness
+    pub drop_above_min_val: f32,
+    /// Percentage of line thickness
+    pub drop_below_min_val: f32,
+}
+
+impl Default for PolylineFocusPoint {
+    fn default() -> Self {
+        PolylineFocusPoint {
+            focus_point: Vec3::ZERO,
+            highlight_height: 5.0,
+            drop_above: 2.0,
+            drop_below: 2.0,
+            drop_above_min_val: 0.1,
+            drop_below_min_val: 0.3,
+        }
+    }
 }
 
 impl ExtractComponent for PolylineFocusPoint {
-    type QueryData = &'static PolylineFocusPoint;
+    type QueryData = Option<&'static PolylineFocusPoint>;
     type QueryFilter = With<Camera3d>;
     type Out = PolylineFocusPoint;
 
     fn extract_component(
         item: bevy::ecs::query::QueryItem<'_, '_, Self::QueryData>,
     ) -> Option<Self::Out> {
-        Some(*item)
+        if let Some(&item) = item {
+            Some(item)
+        } else {
+            Some(PolylineFocusPoint {
+                focus_point: Vec3::NAN,
+                ..Default::default()
+            })
+        }
     }
 }
