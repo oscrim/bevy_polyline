@@ -1,4 +1,8 @@
-use bevy::{color::palettes::css::RED, prelude::*, render::view::Hdr};
+use bevy::{
+    color::palettes::css::{BLUE, RED},
+    prelude::*,
+    render::view::Hdr,
+};
 use bevy_polyline::{polyline::PolylineFocusPoint, prelude::*};
 
 fn main() {
@@ -17,7 +21,7 @@ fn setup(
 ) {
     commands.spawn(PolylineBundle {
         polyline: PolylineHandle(polylines.add(Polyline {
-            vertices: vec![-Vec3::ONE, Vec3::ONE],
+            vertices: vec![-Vec3::ONE, Vec3::ZERO, Vec3::ONE],
         })),
         material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
             width: 10.0,
@@ -28,11 +32,28 @@ fn setup(
         ..default()
     });
 
+    commands.spawn(PolylineBundle {
+        polyline: PolylineHandle(polylines.add(Polyline {
+            vertices: vec![Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)],
+        })),
+        material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
+            width: 10.0,
+            color: BLUE.into(),
+            perspective: true,
+            ..default()
+        })),
+        ..default()
+    });
+
     // camera
     commands.spawn((
         Camera3d::default(),
         PolylineFocusPoint {
-            focus_point: Vec3::ZERO,
+            focus_point: Vec3::new(0.0, 0.0, 1.0),
+            highlight_height: 0.2,
+            drop_above: 0.01,
+            drop_below: 0.01,
+            ..Default::default()
         },
         Msaa::Sample4,
         Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),

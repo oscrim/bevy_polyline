@@ -216,11 +216,11 @@ impl SpecializedRenderPipeline for PolylineMaterialPipeline {
     type Key = PolylinePipelineKey;
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         let mut descriptor = self.polyline_pipeline.specialize(key);
-        if key.contains(PolylinePipelineKey::PERSPECTIVE) {
+        if key.contains(PolylinePipelineKey::FOCUS_POINT) {
             descriptor
                 .vertex
                 .shader_defs
-                .push("POLYLINE_PERSPECTIVE".into());
+                .push("POLYLINE_FOCUS_POINT".into());
         }
         if key.contains(PolylinePipelineKey::MAX_CLIP_W) {
             descriptor
@@ -307,7 +307,12 @@ pub fn queue_material_polylines(
     pipeline_cache: Res<PipelineCache>,
     render_materials: Res<RenderAssets<GpuPolylineMaterial>>,
     material_meshes: Query<(&PolylineMaterialHandle, &PolylineUniform)>,
-    views: Query<(&ExtractedView, &RenderVisibleEntities, &Msaa)>,
+    views: Query<(
+        &ExtractedView,
+        &RenderVisibleEntities,
+        &Msaa,
+        &PolylineFocusPoint,
+    )>,
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     mut alpha_mask_phases: ResMut<ViewBinnedRenderPhases<AlphaMask3d>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
@@ -321,12 +326,17 @@ pub fn queue_material_polylines(
         .read()
         .id::<DrawPolylineMaterial>();
 
-    for (view, visible_entities, msaa) in &views {
+    for (view, visible_entities, msaa, focus_point) in &views {
         let inverse_view_matrix = view.world_from_view.to_matrix().inverse();
         let inverse_view_row_2 = inverse_view_matrix.row(2);
 
         let mut polyline_key = PolylinePipelineKey::from_msaa_samples(msaa.samples());
         polyline_key |= PolylinePipelineKey::from_hdr(view.hdr);
+
+        if !focus_point.focus_point.is_nan() {
+            polyline_key |= PolylinePipelineKey::FOCUS_POINT;
+        }
+
         for (visible_entity, visible_main_entity) in visible_entities.get::<PolylineHandle>() {
             let Ok((material_handle, polyline_uniform)) = material_meshes.get(*visible_entity)
             else {
@@ -337,9 +347,6 @@ pub fn queue_material_polylines(
             };
             if material.alpha_mode == AlphaMode::Blend {
                 polyline_key |= PolylinePipelineKey::TRANSPARENT_MAIN_PASS
-            }
-            if material.perspective {
-                polyline_key |= PolylinePipelineKey::PERSPECTIVE
             }
             if material.clip_w {
                 polyline_key |= PolylinePipelineKey::MAX_CLIP_W
