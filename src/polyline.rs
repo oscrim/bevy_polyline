@@ -199,19 +199,12 @@ impl SpecializedRenderPipeline for PolylinePipeline {
             // For the transparent pass, fragments that are closer will be alpha blended
             // but their depth is not written to the depth buffer
             depth_write_enabled = false;
-        } else if key.contains(PolylinePipelineKey::FOCUS_POINT) {
+        } else {
             // We need to use transparent pass with perspective to support thin line fading.
             label = "transparent_polyline_pipeline".into();
             blend = Some(BlendState::ALPHA_BLENDING);
             // Because we are expecting an opaque matl we should enable depth writes, as we don't
             // need to blend most lines.
-            depth_write_enabled = true;
-        } else {
-            label = "opaque_polyline_pipeline".into();
-            blend = Some(BlendState::REPLACE);
-            // For the opaque and alpha mask passes, fragments that are closer will replace
-            // the current fragment value in the output and the depth is written to the
-            // depth buffer
             depth_write_enabled = true;
         }
 
@@ -298,7 +291,6 @@ bitflags::bitflags! {
         const FOCUS_POINT = (1 << 0);
         const TRANSPARENT_MAIN_PASS = (1 << 1);
         const HDR = (1 << 2);
-        const MAX_CLIP_W = (1 << 3);
         const MSAA_RESERVED_BITS = Self::MSAA_MASK_BITS << Self::MSAA_SHIFT_BITS;
     }
 }
@@ -438,7 +430,7 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPolyline {
     }
 }
 
-#[derive(Component, Clone, Copy, ShaderType)]
+#[derive(Component, Clone, Copy, ShaderType, Reflect)]
 pub struct PolylineFocusPoint {
     pub focus_point: Vec3,
     /// How many units above and below the focus point to highlight
@@ -453,6 +445,34 @@ pub struct PolylineFocusPoint {
     pub drop_above_min_val: f32,
     /// Percentage of line thickness
     pub drop_below_min_val: f32,
+}
+
+impl PolylineFocusPoint {
+    /// Sets the focus point to [`Vec3::NAN`].
+    ///
+    /// Can be enabled again by setting the focus point to a finite value.
+    pub fn disable(&mut self) {
+        self.focus_point = Vec3::NAN;
+    }
+
+    /// Returns true if the focus point is on a finite position.
+    pub fn enabled(&self) -> bool {
+        self.focus_point.is_finite()
+    }
+
+    /// Returns true if the focus point isnt on a finite position.
+    pub fn disabled(&self) -> bool {
+        !self.enabled()
+    }
+
+    pub const DISABLED: Self = Self {
+        focus_point: Vec3::NAN,
+        highlight_height: 5.0,
+        drop_above: 2.0,
+        drop_below: 2.0,
+        drop_above_min_val: 0.1,
+        drop_below_min_val: 0.3,
+    };
 }
 
 impl Default for PolylineFocusPoint {

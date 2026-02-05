@@ -33,7 +33,6 @@ fn setup(
         material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
             width: 2.0,
             color: RED.into(),
-            perspective: false,
             // Bias the line toward the camera so the line at the cube-plane intersection is visible
             depth_bias: -0.0002,
             ..Default::default()

@@ -69,7 +69,6 @@ fn setup(
                         width: (size * 0.1).powf(1.8),
                         color: Color::hsl(rng.gen_range(0.0..360.0), 1.0, rng.gen_range(1.2..3.0))
                             .to_linear(),
-                        perspective: true,
                         ..Default::default()
                     }),
                 ),
