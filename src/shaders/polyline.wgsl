@@ -64,18 +64,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     clip0 = clip_near_plane(clip0, clip1);
     clip1 = clip_near_plane(clip1, clip0);
 
-    #ifdef POLYLINE_MAX_CLIP_W
-        clip0 = clip_far_plane(clip0, clip1, material.max_clip_w);
-        clip1 = clip_far_plane(clip1, clip0, material.max_clip_w);
-
-        if clip0.w > material.max_clip_w && clip1.w > material.max_clip_w {
-            return VertexOutput(
-                vec4(0.0, 0.0, 2.0, 1.0),
-                vec4(0.0)
-            );
-        }
-    #endif
-
     let clip = mix(clip0, clip1, position.z);
 
     let resolution = vec2(view.viewport.z, view.viewport.w);
@@ -139,14 +127,16 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         //color = vec4(scale, 1.0 - scale, 1.0 - scale, 1.0);
 
         color.a *= smoothstep(0.0, 0.2, scale);
-
-        //line_width /= clip.w;
-        // Line thinness fade from https://acegikmo.com/shapes/docs/#anti-aliasing
-        if (line_width > 0.0 && line_width < 1.0) {
-            color.a *= line_width;
-            line_width = 1.0;
-        }
+    #else
+        //color = vec4(0.0, 1.0, 0.0, color.a);
+        line_width /= clip.w;
     #endif
+
+    // Line thinness fade from https://acegikmo.com/shapes/docs/#anti-aliasing
+    if (line_width > 0.0 && line_width < 1.0) {
+        color.a *= line_width;
+        line_width = 1.0;
+    }
 
     let pt_offset = line_width * (position.x * x_basis + position.y * y_basis);
     let pt0 = screen0 + pt_offset;
@@ -178,14 +168,6 @@ fn clip_near_plane(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
         let distance_a = a.z - a.w;
         let distance_b = b.z - b.w;
         let t = distance_a / (distance_a - distance_b);
-        return a + (b - a) * t;
-    }
-    return a;
-}
-
-fn clip_far_plane(a: vec4<f32>, b: vec4<f32>, max_w: f32) -> vec4<f32> {
-    if a.w > max_w && b.w <= max_w {
-        let t = (max_w - a.w) / (b.w - a.w);
         return a + (b - a) * t;
     }
     return a;

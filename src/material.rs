@@ -51,19 +51,6 @@ pub struct PolylineMaterial {
     /// and your wireframe is z-fighting (flickering on/off) with your main model.
     /// You would set this value to a negative number close to 0.0.
     pub depth_bias: f32,
-    /// Whether to reduce line width with perspective.
-    ///
-    /// When `perspective` is `true`, `width` corresponds to screen pixels at
-    /// the near plane and becomes progressively smaller further away. This is done
-    /// by dividing `width` by the w component of the homogeneous coordinate.
-    ///
-    /// If the width where to be lower than 1, the color of the line is faded. This
-    /// prevents flickering.
-    ///
-    /// Note that `depth_bias` **does not** interact with this in any way.
-    pub perspective: bool,
-    /// TODO
-    pub max_clip_w: Option<f32>,
 }
 
 impl Default for PolylineMaterial {
@@ -72,8 +59,6 @@ impl Default for PolylineMaterial {
             width: 10.0,
             color: Color::WHITE.to_linear(),
             depth_bias: 0.0,
-            perspective: false,
-            max_clip_w: None,
         }
     }
 }
@@ -106,15 +91,12 @@ pub struct PolylineMaterialUniform {
     pub color: Vec4,
     pub depth_bias: f32,
     pub width: f32,
-    pub max_clip_w: f32,
 }
 
 pub struct GpuPolylineMaterial {
     pub buffer: UniformBuffer<PolylineMaterialUniform>,
-    pub perspective: bool,
     pub bind_group: BindGroup,
     pub alpha_mode: AlphaMode,
-    pub clip_w: bool,
 }
 
 impl RenderAsset for GpuPolylineMaterial {
@@ -135,7 +117,6 @@ impl RenderAsset for GpuPolylineMaterial {
             width: polyline_material.width,
             depth_bias: polyline_material.depth_bias,
             color: polyline_material.color.to_f32_array().into(),
-            max_clip_w: polyline_material.max_clip_w.unwrap_or_default(),
         };
 
         let mut buffer = UniformBuffer::from(value);
@@ -159,10 +140,8 @@ impl RenderAsset for GpuPolylineMaterial {
 
         Ok(GpuPolylineMaterial {
             buffer,
-            perspective: polyline_material.perspective,
             alpha_mode,
             bind_group,
-            clip_w: polyline_material.max_clip_w.is_some(),
         })
     }
 }
@@ -221,12 +200,6 @@ impl SpecializedRenderPipeline for PolylineMaterialPipeline {
                 .vertex
                 .shader_defs
                 .push("POLYLINE_FOCUS_POINT".into());
-        }
-        if key.contains(PolylinePipelineKey::MAX_CLIP_W) {
-            descriptor
-                .vertex
-                .shader_defs
-                .push("POLYLINE_MAX_CLIP_W".into());
         }
         descriptor.layout = vec![
             self.polyline_pipeline.view_layout.clone(),
@@ -347,9 +320,6 @@ pub fn queue_material_polylines(
             };
             if material.alpha_mode == AlphaMode::Blend {
                 polyline_key |= PolylinePipelineKey::TRANSPARENT_MAIN_PASS
-            }
-            if material.clip_w {
-                polyline_key |= PolylinePipelineKey::MAX_CLIP_W
             }
             let pipeline_id =
                 pipelines.specialize(&pipeline_cache, &material_pipeline, polyline_key);

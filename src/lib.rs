@@ -13,7 +13,7 @@ pub mod polyline;
 
 pub mod prelude {
     pub use crate::material::{PolylineMaterial, PolylineMaterialHandle};
-    pub use crate::polyline::{Polyline, PolylineBundle, PolylineHandle};
+    pub use crate::polyline::{Polyline, PolylineBundle, PolylineFocusPoint, PolylineHandle};
     pub use crate::PolylinePlugin;
 }
 pub struct PolylinePlugin;
