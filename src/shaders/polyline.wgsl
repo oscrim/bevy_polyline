@@ -119,9 +119,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
             scale *= tail_scale;
         }
 
-        let min_scale = 0.05;
-        scale = max(min_scale, scale);
-
         line_width *= scale;
 
         //color = vec4(scale, 1.0 - scale, 1.0 - scale, 1.0);
@@ -179,5 +176,9 @@ struct FragmentInput {
 
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
+    if (in.color.a <= 0.0) {
+        discard;
+    }
+
     return in.color;
 }
