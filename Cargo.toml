@@ -23,10 +23,10 @@ bevy = { version = "0.18", default-features = false, features = [
     "bevy_render",
     "bevy_asset",
 ] }
-bevy_post_process = "0.18"
 bytemuck = "1.16.1"
 
 [dev-dependencies]
+bevy_post_process = "0.18"
 lazy_static = "1.4.0"
 rand = "0.8.4"
 ringbuffer = "0.15"
