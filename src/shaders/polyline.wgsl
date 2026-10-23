@@ -1,7 +1,20 @@
 #import bevy_render::view::View
 
+
+
 @group(0) @binding(0)
 var<uniform> view: View;
+
+struct PolylineView {
+    focus_point: vec3<f32>,
+    highlight_height: f32,
+    drop_above: f32,
+    drop_below: f32,
+    drop_above_min_val: f32,
+    drop_below_min_val: f32,
+};
+
+@group(0) @binding(1) var<uniform> polyline_view: PolylineView;
 
 struct Polyline {
     model: mat4x4<f32>,
@@ -14,6 +27,7 @@ struct PolylineMaterial {
     color: vec4<f32>,
     depth_bias: f32,
     width: f32,
+    max_clip_w: f32,
 };
 
 @group(2) @binding(0)
@@ -62,14 +76,64 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var line_width = material.width;
     var color = material.color;
 
-    #ifdef POLYLINE_PERSPECTIVE
-        line_width /= clip.w;
-        // Line thinness fade from https://acegikmo.com/shapes/docs/#anti-aliasing
-        if (line_width > 0.0 && line_width < 1.0) {
-            color.a *= line_width;
-            line_width = 1.0;
+    #ifdef POLYLINE_FOCUS_POINT
+        let world0 = (polyline.model * vec4(vertex.point_a, 1.0)).xyz;
+        let world1 = (polyline.model * vec4(vertex.point_b, 1.0)).xyz;
+        let world_pos = mix(world0, world1, position.z);
+
+        let focus_to_pos = world_pos - polyline_view.focus_point;
+        let camera_pos = vec3(view.world_from_view[3][0], view.world_from_view[3][1], view.world_from_view[3][2]);
+        let cam_to_focus = polyline_view.focus_point - camera_pos;
+
+        let t = dot(focus_to_pos, cam_to_focus) / dot(cam_to_focus, cam_to_focus);
+
+        let delta_y = world_pos.y - polyline_view.focus_point.y; // signed height
+        let h = abs(delta_y);
+        let dead_zone = polyline_view.highlight_height;
+
+        if (h > dead_zone && t < 0.0 && delta_y > 0.0) {
+            //return VertexOutput(vec4(0.0, 0.0, 2.0, 1.0), vec4(0.0));
+            color.a = 0.0;
         }
+
+        let drop_above = polyline_view.drop_above;   // meters for smooth first drop above focus
+        let drop_below = polyline_view.drop_below;   // meters for smooth first drop below focus
+        let first_drop_min_below = polyline_view.drop_below_min_val; // below: drop to 30%
+        let first_drop_min_above = polyline_view.drop_above_min_val; // above: drop to 10%
+
+        var scale = 1.0;
+
+        if (h > dead_zone) {
+            // choose drop range based on above/below
+            let drop_range = select(drop_below, drop_above, delta_y > 0.0); // delta_y >0 → above
+            let target_min = select(first_drop_min_below, first_drop_min_above, delta_y > 0.0);
+
+            let x = h - dead_zone;
+            scale = mix(1.0, target_min, clamp(x / drop_range, 0.0, 1.0));
+        }
+
+        if (delta_y < 0.0 && h > dead_zone + drop_below) {
+            // Tail only applies below focus
+            let tail_h = h - (dead_zone + drop_below);
+            let tail_scale = pow(1.0 + tail_h * 0.1, -0.5); // slow decay
+            scale *= tail_scale;
+        }
+
+        line_width *= scale;
+
+        //color = vec4(scale, 1.0 - scale, 1.0 - scale, 1.0);
+
+        color.a *= smoothstep(0.0, 0.2, scale);
+    #else
+        //color = vec4(0.0, 1.0, 0.0, color.a);
+        line_width /= clip.w;
     #endif
+
+    // Line thinness fade from https://acegikmo.com/shapes/docs/#anti-aliasing
+    if (line_width > 0.0 && line_width < 1.0) {
+        color.a *= line_width;
+        line_width = 1.0;
+    }
 
     let pt_offset = line_width * (position.x * x_basis + position.y * y_basis);
     let pt0 = screen0 + pt_offset;
@@ -95,7 +159,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 }
 
 fn clip_near_plane(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
-    // Move a if a is behind the near plane and b is in front. 
+    // Move a if a is behind the near plane and b is in front.
     if a.z > a.w && b.z <= b.w {
         // Interpolate a towards b until it's at the near plane.
         let distance_a = a.z - a.w;
@@ -112,5 +176,9 @@ struct FragmentInput {
 
 @fragment
 fn fragment(in: FragmentInput) -> @location(0) vec4<f32> {
+    if (in.color.a <= 0.0) {
+        discard;
+    }
+
     return in.color;
 }

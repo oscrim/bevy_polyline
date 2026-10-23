@@ -43,6 +43,8 @@ impl Plugin for PolylineRenderPlugin {
         app.add_plugins((
             ExtractComponentPlugin::<PolylineUniform>::default(),
             UniformComponentPlugin::<PolylineUniform>::default(),
+            ExtractComponentPlugin::<PolylineFocusPoint>::default(),
+            UniformComponentPlugin::<PolylineFocusPoint>::default(),
         ));
     }
 
@@ -187,9 +189,12 @@ impl FromWorld for PolylinePipeline {
     fn from_world(_: &mut World) -> Self {
         let view_layout = BindGroupLayoutDescriptor::new(
             "polyline_view_layout",
-            &BindGroupLayoutEntries::single(
+            &BindGroupLayoutEntries::sequential(
                 ShaderStages::VERTEX,
-                uniform_buffer::<ViewUniform>(true),
+                (
+                    uniform_buffer::<ViewUniform>(true),
+                    uniform_buffer::<PolylineFocusPoint>(true),
+                ),
             ),
         );
 
@@ -222,19 +227,12 @@ impl SpecializedRenderPipeline for PolylinePipeline {
             // For the transparent pass, fragments that are closer will be alpha blended
             // but their depth is not written to the depth buffer
             depth_write_enabled = false;
-        } else if key.contains(PolylinePipelineKey::PERSPECTIVE) {
+        } else {
             // We need to use transparent pass with perspective to support thin line fading.
             label = "transparent_polyline_pipeline".into();
             blend = Some(BlendState::ALPHA_BLENDING);
             // Because we are expecting an opaque matl we should enable depth writes, as we don't
             // need to blend most lines.
-            depth_write_enabled = true;
-        } else {
-            label = "opaque_polyline_pipeline".into();
-            blend = Some(BlendState::REPLACE);
-            // For the opaque and alpha mask passes, fragments that are closer will replace
-            // the current fragment value in the output and the depth is written to the
-            // depth buffer
             depth_write_enabled = true;
         }
 
@@ -315,7 +313,7 @@ bitflags::bitflags! {
     // MSAA uses the highest 3 bits for the MSAA log2(sample count) to support up to 128x MSAA.
     pub struct PolylinePipelineKey: u64 {
         const NONE = 0;
-        const PERSPECTIVE = (1 << 0);
+        const FOCUS_POINT = (1 << 0);
         const TRANSPARENT_MAIN_PASS = (1 << 1);
         const MSAA_RESERVED_BITS = Self::MSAA_MASK_BITS << Self::MSAA_SHIFT_BITS;
     }
@@ -393,14 +391,20 @@ pub fn prepare_polyline_view_bind_groups(
     render_device: Res<RenderDevice>,
     polyline_pipeline: Res<PolylinePipeline>,
     view_uniforms: Res<ViewUniforms>,
+
+    focus_point_uniforms: Res<ComponentUniforms<PolylineFocusPoint>>,
     views: Query<Entity, With<bevy::render::view::ExtractedView>>,
     pipeline_cache: Res<PipelineCache>,
 ) {
     for entity in views.iter() {
+        let focus_binding = focus_point_uniforms
+            .binding()
+            .expect("Failed to prepare polyline bind group. Focus Point is missing");
+
         let view_bind_group = render_device.create_bind_group(
             Some("polyline_view_bind_group"),
             &pipeline_cache.get_bind_group_layout(&polyline_pipeline.view_layout),
-            &BindGroupEntries::single(&view_uniforms.uniforms),
+            &BindGroupEntries::sequential((&view_uniforms.uniforms, focus_binding)),
         );
 
         commands.entity(entity).insert(PolylineViewBindGroup {
@@ -461,6 +465,87 @@ impl<P: PhaseItem> RenderCommand<P> for DrawPolyline {
             RenderCommandResult::Success
         } else {
             RenderCommandResult::Failure("Error loading gpu polyline")
+        }
+    }
+}
+
+#[derive(Component, Clone, Copy, ShaderType, Reflect)]
+pub struct PolylineFocusPoint {
+    pub focus_point: Vec3,
+    /// How many units above and below the focus point to highlight
+    ///
+    /// A value of 1.0 will highlight 1 unit above and 1 unit below the focus point
+    pub highlight_height: f32,
+    /// How many units the sharp line thickness will drop above the focus point
+    pub drop_above: f32,
+    /// How many units the sharp line thickness will drop below the focus point
+    pub drop_below: f32,
+    /// Percentage of line thickness
+    pub drop_above_min_val: f32,
+    /// Percentage of line thickness
+    pub drop_below_min_val: f32,
+}
+
+impl PolylineFocusPoint {
+    /// Sets the focus point to [`Vec3::NAN`].
+    ///
+    /// Can be enabled again by setting the focus point to a finite value.
+    pub fn disable(&mut self) {
+        self.focus_point = Vec3::NAN;
+    }
+
+    /// Returns true if the focus point is on a finite position.
+    pub fn enabled(&self) -> bool {
+        self.focus_point.is_finite()
+    }
+
+    /// Returns true if the focus point isnt on a finite position.
+    pub fn disabled(&self) -> bool {
+        !self.enabled()
+    }
+
+    pub const DISABLED: Self = Self {
+        focus_point: Vec3::NAN,
+        highlight_height: 5.0,
+        drop_above: 2.0,
+        drop_below: 2.0,
+        drop_above_min_val: 0.1,
+        drop_below_min_val: 0.3,
+    };
+}
+
+impl Default for PolylineFocusPoint {
+    fn default() -> Self {
+        PolylineFocusPoint {
+            focus_point: Vec3::ZERO,
+            highlight_height: 5.0,
+            drop_above: 2.0,
+            drop_below: 2.0,
+            drop_above_min_val: 0.1,
+            drop_below_min_val: 0.3,
+        }
+    }
+}
+
+impl SyncComponent for PolylineFocusPoint {
+    type Target = Self;
+}
+
+impl ExtractComponent for PolylineFocusPoint {
+    type QueryData = Option<&'static PolylineFocusPoint>;
+    type QueryFilter = With<Camera3d>;
+    type Out = PolylineFocusPoint;
+
+    fn extract_component(
+        item: bevy::ecs::query::QueryItem<'_, '_, Self::QueryData>,
+    ) -> Option<Self::Out> {
+        if let Some(&item) = item {
+            Some(item)
+        } else {
+            Some(PolylineFocusPoint {
+                focus_point: Vec3::NAN,
+                ..Default::default()
+            })
         }
     }
 }

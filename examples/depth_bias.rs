@@ -81,7 +81,6 @@ fn setup(
             width: 5.0,
             color: RED.into(),
             depth_bias: -1.0,
-            perspective: false,
         })),
         ..Default::default()
     });
@@ -98,7 +97,6 @@ fn setup(
                 width: 1.0,
                 color: Color::hsl((bias + 1.0) / 2.0 * 270.0, 1.0, 0.5).to_linear(),
                 depth_bias: bias,
-                perspective: false,
             })),
             ..Default::default()
         });

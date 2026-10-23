@@ -73,7 +73,6 @@ fn setup(
                             rng.random_range(1.2..3.0),
                         )
                         .to_linear(),
-                        perspective: true,
                         ..Default::default()
                     }),
                 ),

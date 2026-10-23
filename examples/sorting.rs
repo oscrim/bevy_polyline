@@ -29,7 +29,6 @@ fn setup(
             material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
                 width: 30.0,
                 color,
-                perspective: false,
                 ..default()
             })),
             transform: Transform::from_xyz(0.0, 0.0, z),

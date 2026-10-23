@@ -1,6 +1,6 @@
 use crate::polyline::{
-    DrawPolyline, PendingPolylineQueues, PolylineHandle, PolylinePipeline, PolylinePipelineKey,
-    PolylineUniform, PolylineViewBindGroup, SetPolylineBindGroup,
+    DrawPolyline, PendingPolylineQueues, PolylineFocusPoint, PolylineHandle, PolylinePipeline,
+    PolylinePipelineKey, PolylineUniform, PolylineViewBindGroup, SetPolylineBindGroup,
 };
 
 use bevy::{
@@ -18,15 +18,17 @@ use bevy::{
             SystemParamItem,
         },
     },
+    platform::collections::HashMap,
     prelude::*,
     render::{
         camera::DirtySpecializations,
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_component::{DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin},
         render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
         render_phase::*,
         render_resource::{binding_types::uniform_buffer, *},
         renderer::{RenderDevice, RenderQueue},
-        view::{ExtractedView, RenderVisibleEntities, ViewUniformOffset},
+        sync_world::MainEntity,
+        view::{ExtractedView, RenderVisibleEntities, RetainedViewEntity, ViewUniformOffset},
         Render, RenderApp, RenderSystems,
     },
 };
@@ -54,17 +56,6 @@ pub struct PolylineMaterial {
     /// and your wireframe is z-fighting (flickering on/off) with your main model.
     /// You would set this value to a negative number close to 0.0.
     pub depth_bias: f32,
-    /// Whether to reduce line width with perspective.
-    ///
-    /// When `perspective` is `true`, `width` corresponds to screen pixels at
-    /// the near plane and becomes progressively smaller further away. This is done
-    /// by dividing `width` by the w component of the homogeneous coordinate.
-    ///
-    /// If the width where to be lower than 1, the color of the line is faded. This
-    /// prevents flickering.
-    ///
-    /// Note that `depth_bias` **does not** interact with this in any way.
-    pub perspective: bool,
 }
 
 impl Default for PolylineMaterial {
@@ -73,7 +64,6 @@ impl Default for PolylineMaterial {
             width: 10.0,
             color: Color::WHITE.to_linear(),
             depth_bias: 0.0,
-            perspective: false,
         }
     }
 }
@@ -110,7 +100,6 @@ pub struct PolylineMaterialUniform {
 
 pub struct GpuPolylineMaterial {
     pub buffer: UniformBuffer<PolylineMaterialUniform>,
-    pub perspective: bool,
     pub bind_group: BindGroup,
     pub alpha_mode: AlphaMode,
 }
@@ -159,7 +148,6 @@ impl RenderAsset for GpuPolylineMaterial {
 
         Ok(GpuPolylineMaterial {
             buffer,
-            perspective: polyline_material.perspective,
             alpha_mode,
             bind_group,
         })
@@ -214,11 +202,11 @@ impl SpecializedRenderPipeline for PolylineMaterialPipeline {
     type Key = PolylinePipelineKey;
     fn specialize(&self, key: Self::Key) -> RenderPipelineDescriptor {
         let mut descriptor = self.polyline_pipeline.specialize(key);
-        if key.contains(PolylinePipelineKey::PERSPECTIVE) {
+        if key.contains(PolylinePipelineKey::FOCUS_POINT) {
             descriptor
                 .vertex
                 .shader_defs
-                .push("POLYLINE_PERSPECTIVE".into());
+                .push("POLYLINE_FOCUS_POINT".into());
         }
         descriptor.layout = vec![
             self.polyline_pipeline.view_layout.clone(),
@@ -239,19 +227,27 @@ type DrawPolylineMaterial = (
 
 pub struct SetPolylineViewBindGroup<const I: usize>;
 impl<const I: usize, P: PhaseItem> RenderCommand<P> for SetPolylineViewBindGroup<I> {
-    type ViewQuery = (Read<ViewUniformOffset>, Read<PolylineViewBindGroup>);
+    type ViewQuery = (
+        Read<ViewUniformOffset>,
+        Read<DynamicUniformIndex<PolylineFocusPoint>>,
+        Read<PolylineViewBindGroup>,
+    );
     type ItemQuery = ();
     type Param = ();
 
     #[inline]
     fn render<'w>(
         _item: &P,
-        (view_uniform, mesh_view_bind_group): ROQueryItem<'w, '_, Self::ViewQuery>,
+        (view_uniform, focus_offset, mesh_view_bind_group): ROQueryItem<'w, '_, Self::ViewQuery>,
         _entity: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         _param: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        pass.set_bind_group(I, &mesh_view_bind_group.value, &[view_uniform.offset]);
+        pass.set_bind_group(
+            I,
+            &mesh_view_bind_group.value,
+            &[view_uniform.offset, focus_offset.index()],
+        );
         RenderCommandResult::Success
     }
 }
@@ -293,10 +289,16 @@ pub fn queue_material_polylines(
     material_meshes: Query<(&PolylineMaterialHandle, &PolylineUniform)>,
     dirty_specializations: Res<DirtySpecializations>,
     mut pending_queues: ResMut<PendingPolylineQueues>,
-    views: Query<(&ExtractedView, &RenderVisibleEntities, &Msaa)>,
+    views: Query<(
+        &ExtractedView,
+        &RenderVisibleEntities,
+        &Msaa,
+        &PolylineFocusPoint,
+    )>,
     mut opaque_phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
     mut alpha_mask_phases: ResMut<ViewBinnedRenderPhases<AlphaMask3d>>,
     mut transparent_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    mut focus_point_enabled: Local<HashMap<RetainedViewEntity, bool>>,
 ) {
     let draw_opaque = opaque_draw_functions.read().id::<DrawPolylineMaterial>();
     let draw_alpha_mask = alpha_mask_draw_functions
@@ -306,7 +308,16 @@ pub fn queue_material_polylines(
         .read()
         .id::<DrawPolylineMaterial>();
 
-    for (view, visible_entities, msaa) in &views {
+    // The focus point is a per-view pipeline key bit, so when it is toggled on a view all of
+    // the polylines visible from that view must be re-specialized. `DirtySpecializations`
+    // doesn't know about it, so we keep track of the last state per view ourselves.
+    focus_point_enabled.retain(|retained_view_entity, _| {
+        views
+            .iter()
+            .any(|(view, ..)| view.retained_view_entity == *retained_view_entity)
+    });
+
+    for (view, visible_entities, msaa, focus_point) in &views {
         let (Some(opaque_phase), Some(alpha_mask_phase), Some(transparent_phase)) = (
             opaque_phases.get_mut(&view.retained_view_entity),
             alpha_mask_phases.get_mut(&view.retained_view_entity),
@@ -321,6 +332,18 @@ pub fn queue_material_polylines(
 
         let pending = pending_queues.prepare_for_new_frame(view.retained_view_entity);
 
+        let focus_enabled = focus_point.enabled();
+        let focus_toggled = focus_point_enabled
+            .insert(view.retained_view_entity, focus_enabled)
+            .is_some_and(|was_enabled| was_enabled != focus_enabled);
+
+        if focus_toggled {
+            for (_, &main_entity) in polyline_visible_entities.iter_visible() {
+                opaque_phase.remove(main_entity);
+                alpha_mask_phase.remove(main_entity);
+                transparent_phase.remove(Entity::PLACEHOLDER, main_entity);
+            }
+        }
         for &main_entity in dirty_specializations
             .iter_to_dequeue(view.retained_view_entity, polyline_visible_entities)
         {
@@ -332,13 +355,28 @@ pub fn queue_material_polylines(
         let inverse_view_matrix = view.world_from_view.to_matrix().inverse();
         let inverse_view_row_2 = inverse_view_matrix.row(2);
 
-        let base_polyline_key = PolylinePipelineKey::from_msaa_samples(msaa.samples())
+        let mut base_polyline_key = PolylinePipelineKey::from_msaa_samples(msaa.samples())
             | PolylinePipelineKey::from_target_format(view.target_format);
-        for (visible_entity, visible_main_entity) in dirty_specializations.iter_to_queue(
-            view.retained_view_entity,
-            polyline_visible_entities,
-            &pending.prev_frame,
-        ) {
+        if focus_enabled {
+            base_polyline_key |= PolylinePipelineKey::FOCUS_POINT;
+        }
+
+        let to_queue: Vec<(Entity, MainEntity)> = if focus_toggled {
+            polyline_visible_entities
+                .iter_visible()
+                .map(|(entity, main_entity)| (*entity, *main_entity))
+                .collect()
+        } else {
+            dirty_specializations
+                .iter_to_queue(
+                    view.retained_view_entity,
+                    polyline_visible_entities,
+                    &pending.prev_frame,
+                )
+                .map(|(entity, main_entity)| (*entity, *main_entity))
+                .collect()
+        };
+        for (visible_entity, visible_main_entity) in &to_queue {
             let Ok((material_handle, polyline_uniform)) = material_meshes.get(*visible_entity)
             else {
                 pending
@@ -358,9 +396,6 @@ pub fn queue_material_polylines(
                 AlphaMode::Blend | AlphaMode::Premultiplied | AlphaMode::Add | AlphaMode::Multiply
             ) {
                 polyline_key |= PolylinePipelineKey::TRANSPARENT_MAIN_PASS
-            }
-            if material.perspective {
-                polyline_key |= PolylinePipelineKey::PERSPECTIVE
             }
             let pipeline_id =
                 pipelines.specialize(&pipeline_cache, &material_pipeline, polyline_key);

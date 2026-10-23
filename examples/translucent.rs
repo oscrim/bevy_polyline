@@ -21,7 +21,6 @@ fn setup(
         material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
             width: 100.0,
             color: LinearRgba::new(1.0, 0.0, 0.0, 1.0),
-            perspective: false,
             ..default()
         })),
         ..default()
@@ -34,7 +33,6 @@ fn setup(
         material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
             width: 100.0,
             color: LinearRgba::new(0.0, 1.0, 0.0, 0.5),
-            perspective: false,
             ..default()
         })),
         ..default()

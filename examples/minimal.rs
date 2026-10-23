@@ -21,7 +21,6 @@ fn setup(
         material: PolylineMaterialHandle(polyline_materials.add(PolylineMaterial {
             width: 10.0,
             color: RED.into(),
-            perspective: false,
             ..default()
         })),
         ..default()
