@@ -27,7 +27,6 @@ struct PolylineMaterial {
     color: vec4<f32>,
     depth_bias: f32,
     width: f32,
-    max_clip_w: f32,
 };
 
 @group(2) @binding(0)
